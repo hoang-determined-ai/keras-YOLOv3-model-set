@@ -1,0 +1,62 @@
+name: yolov3_const_test
+data:
+  url:
+hyperparameters:
+  # General
+  model_type: yolo3_mobilenet_lite
+  anchors_path: /run/determined/workdir/configs/yolo3_anchors.txt
+  #model_image_size: 416x416 # Split into image_height and image_width
+  image_height: 416
+  image_width: 416
+  weights_path: /data/yolov3.h5
+  # Data options
+  annotation_file: /data/COCO2017/trainval.txt
+  val_annotation_file: None
+  val_split: 0.1
+  classes_path: /run/determined/workdir/configs/coco_classes.txt
+  # Training options
+  global_batch_size: 16
+  optimizer: adam
+  learning_rate: 1e-3
+  average_type: None # weights average type, choices=[None, 'ema', 'swa', 'lookahead'],
+  decay_type: None # choices=[None, 'cosine', 'exponential', 'polynomial', 'piecewise_constant']
+  transfer_epoch: 20 # Transfer training (from Imagenet) stage epochs
+  freeze_level: 0 # Freeze level of the model in transfer training stage. 0:NA/1:backbone/2:only open prediction layer, choices=[None, 0, 1, 2],
+  #init_epoch: 0
+  #total_epoch: 250 # Replaced by searcher.max_length
+  multiscale: False # Whether to use multiscale training
+  rescale_interval: 10 # Number of iteration(batches) interval to rescale input size
+  enhance_augment: None # enhance data augmentation type (None/mosaic), choices=[None, 'mosaic']
+  label_smoothing: 0 # Label smoothing factor (between 0 and 1) for classification loss
+  multi_anchor_assign: False # Assign multiple anchors to single ground truth
+  elim_grid_sense: False # Eliminate grid sensitivity
+  data_shuffle: False # Whether to shuffle train/val data for cross-validation
+  #gpu_num: 1 # Replaced by resources.slots_per_trial
+  model_pruning: False # Use model pruning for optimization, only for TF 1.x
+
+  # Evaluation options
+  eval_online: False # Whether to do evaluation on validation dataset during training
+  #eval_epoch_interval: 10 # Replaced by min_validation_period
+  #save_eval_checkpoint: False # Checkpoints saved automatically and configured with min_checkpoint_period
+
+bind_mounts:
+  - host_path: /data
+    container_path: /data
+
+records_per_epoch: 100000
+searcher:
+  name: single
+  metric: val_loss
+  max_length:
+    epochs: 1
+min_validation_period:
+  epochs: 1
+entrypoint: model_def:YoloV3Trial
+max_restarts: 0
+resources:
+  slots_per_trial: 1
+
+profiling:
+  enabled: true
+  begin_on_batch: 0
+  end_after_batch: 10000
