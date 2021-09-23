@@ -40,7 +40,7 @@ hyperparameters:
   #save_eval_checkpoint: False # Checkpoints saved automatically and configured with min_checkpoint_period
 
 bind_mounts:
-  - host_path: /data
+  - host_path: /tmp
     container_path: /data
 
 records_per_epoch: 100000
@@ -48,9 +48,9 @@ searcher:
   name: single
   metric: val_loss
   max_length:
-    epochs: 1
+    batches: 1000
 min_validation_period:
-  epochs: 1
+  batches: 200
 entrypoint: model_def:YoloV3Trial
 max_restarts: 0
 resources:

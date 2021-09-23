@@ -240,10 +240,10 @@ class Yolo3DataGenerator(Sequence):
 
         return [image_data, *y_true], np.zeros(self.batch_size)
 
-    def on_epoch_end(self):
-        # shuffle annotation data on epoch end
-        if self.shuffle == True:
-            np.random.shuffle(self.annotation_lines)
+    # def on_epoch_end(self):
+    #     # shuffle annotation data on epoch end
+    #     if self.shuffle == True:
+    #         np.random.shuffle(self.annotation_lines)
 
 
 

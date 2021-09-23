@@ -23,8 +23,9 @@ from common.callbacks import EvalCallBack, CheckpointCleanCallBack, DatasetShuff
 
 ### Import Determined packages
 from determined.keras import TFKerasTrial, TFKerasTrialContext
-from determined.keras.callbacks import EarlyStopping, ReduceLROnPlateau, TensorBoard
+from determined.keras.callbacks import EarlyStopping, ReduceLROnPlateau, TensorBoard, Callback
 from typing import *
+
 
 # Try to enable Auto Mixed Precision on TF 2.0
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
@@ -32,6 +33,7 @@ os.environ['TF_AUTO_MIXED_PRECISION_GRAPH_REWRITE_IGNORE_PERFORMANCE'] = '1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import tensorflow as tf
+
 optimize_tf_gpu(tf, K)
 
 class YoloV3Trial(TFKerasTrial):
@@ -57,13 +59,12 @@ class YoloV3Trial(TFKerasTrial):
         self.anchors = get_anchors(self.context.get_hparam("anchors_path"))
         self.num_anchors = len(self.anchors)
 
-        if self.context.get_hparam("model_type").startswith('scaled_yolo4_') or self.context.get_hparam("model_type").startswith('yolo5_'):
-            # Scaled-YOLOv4 & YOLOv5 entrance, use yolo5 submodule but now still yolo3 data generator
-            print("!@# Getting Yolo5")
-            self.get_train_model = get_yolo5_train_model
-        elif self.context.get_hparam("model_type").startswith('yolo3_') or self.context.get_hparam("model_type").startswith('yolo4_'):
+        if self.context.get_hparam("model_type").startswith('yolo3_') or self.context.get_hparam("model_type").startswith('yolo4_'):
             print("!@# Getting Yolo3")
             self.get_train_model = get_yolo3_train_model
+        else:
+            print("!@# Model not compatible")
+            exit()
 
     def build_model(self):
         # Define and compile model graph.
@@ -90,7 +91,7 @@ class YoloV3Trial(TFKerasTrial):
                                  self.num_classes,
                                  weights_path=None,
                                  #weights_path=self.context.get_hparam("weights_path"),
-                                 freeze_level=0,
+                                 freeze_level=1,
                                  #freeze_level=freeze_level,
                                  optimizer=optimizer,
                                  label_smoothing=self.context.get_hparam("label_smoothing"),
@@ -109,54 +110,28 @@ class YoloV3Trial(TFKerasTrial):
 
         # get train&val dataset
         dataset = get_dataset(self.annotation_file)
+        print(f"dataset len: {len(dataset)}")
+
         if self.context.get_hparam("val_annotation_file") != "None":
+            print(f"Using validation annotation file")
             val_dataset = get_dataset(self.context.get_hparam("val_annotation_file"))
             num_train = len(dataset)
             num_val = len(val_dataset)
             dataset.extend(val_dataset)
         else:
+            print(f"Splitting dataset into validation split")
             val_split = self.context.get_hparam("val_split")
             num_val = int(len(dataset) * val_split)
             num_train = len(dataset) - num_val
 
-        if self.context.get_hparam("model_type").startswith('scaled_yolo4_') or self.context.get_hparam("model_type").startswith('yolo5_'):
-            # Scaled-YOLOv4 & YOLOv5 entrance, use yolo5 submodule but now still yolo3 data generator
-            # TODO: create new yolo5 data generator to apply YOLOv5 anchor assignment
-            # get_train_model = get_yolo5_train_model
-            # data_generator = yolo5_data_generator_wrapper
-
-            # tf.keras.Sequence style data generator
-            self.train_data_generator = self.context.wrap_dataset(
-                Yolo5DataGenerator(dataset[:num_train],
-                                   self.context.get_per_slot_batch_size(),
-                                   self.input_shape,
-                                   self.anchors,
-                                   self.num_classes,
-                                   self.context.get_hparam("enhance_augment"),
-                                   self.rescale_interval,
-                                   self.context.get_hparam("multi_anchor_assign")
-                                   )
-            )
-            self.val_data_generator = self.context.wrap_dataset(
-                Yolo5DataGenerator(dataset[num_train:],
-                                   self.context.get_per_slot_batch_size(),
-                                   self.input_shape,
-                                   self.anchors,
-                                   self.num_classes,
-                                   multi_anchor_assign=self.context.get_hparam("multi_anchor_assign")
-                                   )
-            )
-            tiny_version = False
-
-        elif self.context.get_hparam("model_type").startswith('yolo3_') or self.context.get_hparam("model_type").startswith('yolo4_'):
+        if self.context.get_hparam("model_type").startswith('yolo3_') or self.context.get_hparam("model_type").startswith('yolo4_'):
             # if num_anchors == 9:
             # YOLOv3 & v4 entrance, use 9 anchors
             # get_train_model = get_yolo3_train_model
             # data_generator = yolo3_data_generator_wrapper
 
             # tf.keras.Sequence style data generator
-            self.train_data_generator = self.context.wrap_dataset(
-                Yolo3DataGenerator(dataset[:num_train],
+            self.train_data_generator = Yolo3DataGenerator(dataset[:num_train],
                                    self.context.get_per_slot_batch_size(),
                                    self.input_shape,
                                    self.anchors,
@@ -165,24 +140,26 @@ class YoloV3Trial(TFKerasTrial):
                                    self.rescale_interval,
                                    self.context.get_hparam("multi_anchor_assign")
                                    )
-            )
-            self.val_data_generator = self.context.wrap_dataset(
-                Yolo3DataGenerator(dataset[num_train:],
+
+            self.val_data_generator = Yolo3DataGenerator(dataset[(num_train-3):], # Batch size of 16 doesn't divide evenly into number of records
                                    self.context.get_per_slot_batch_size(),
                                    self.input_shape,
                                    self.anchors,
                                    self.num_classes,
                                    multi_anchor_assign=self.context.get_hparam("multi_anchor_assign")
                                    )
-            )
+
             tiny_version = False
+
+        print(f"!@# Length train_data_generator: {len(self.train_data_generator)}")
+        print(f"!@# Length val_data_generator: {len(self.val_data_generator)}")
 
         return self.train_data_generator
 
     def build_validation_data_loader(self):
         # Create the validation data loader. This should return a keras.Sequence,
         # a tf.data.Dataset, or NumPy arrays.
-
+        print(f"!@# Length val_data_generator: {len(self.val_data_generator)}")
         return self.val_data_generator
 
     def keras_callbacks(self) -> List[tf.keras.callbacks.Callback]:
@@ -194,11 +171,31 @@ class YoloV3Trial(TFKerasTrial):
         early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=50, verbose=1, mode='min')
         terminate_on_nan = TerminateOnNaN()
 
-
-
-        callbacks = [logging, reduce_lr, early_stopping, terminate_on_nan]
+        #custom_callback = unfreezeCallback()
+        callbacks = [logging, reduce_lr, early_stopping, terminate_on_nan,
+                     #custom_callback,
+                     ]
 
         return callbacks
+
+# class unfreezeCallback(tf.keras.callbacks.Callback):
+#
+#     def __init__(self):
+#
+#         super().__init__()
+#
+#     def on_train_batch_end(self, batch, logs=None):
+#
+#         print(f"train_batch: {batch}")
+#         if batch != 0 and batch % 1000 == 0:
+#             print(f"!@# current number of frozen layers in model (partially unfrozen)")
+#             self.model.summary()
+#
+#             print(f"unfreezing model layers")
+#             for i in range(len(self.model.layers)):
+#                 self.model.layers[i].trainable = True
+#             print(f"!@# current number of frozen layers in model (all unfrozen)")
+#             self.model.summary()
 
 '''
 def main_old(args):

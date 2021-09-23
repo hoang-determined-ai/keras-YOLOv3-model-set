@@ -26,11 +26,12 @@ mkdir -p /data/COCO2017 && \
     wget -O /data/yolov3.weights https://pjreddie.com/media/files/yolov3.weights
 cd /data/COCO2017 && \
     unzip -e train2017.zip && unzip -e val2017.zip && unzip -e test2017.zip && \
-    unzip -e annotations_trainval2017.zip && unzip -e image_info_test2017.zip && \
-    cp -rf train2017.txt trainval.txt && cat val2017.txt >> trainval.txt
+    unzip -e annotations_trainval2017.zip && unzip -e image_info_test2017.zip
+cp -rf /data/COCO2017/train2017.txt /data/COCO2017/trainval.txt && cat /data/COCO2017/val2017.txt >> /data/COCO2017/trainval.txt
+
 cd /run/determined/workdir/tools/dataset_converter && \
-    python coco_annotation.py --dataset_path=/data/COCO2017/ --output_path=/data/COCO2017/new
+    python coco_annotation.py --dataset_path=/data/COCO2017/ --output_path=/data/COCO2017
 cd /run/determined/workdir/tools/model_converter && \
-    python convert.py /run/determined/workdir/cfg/yolov3.cfg /data/yolov3.weights /data/new/yolov3.h5
+    python convert.py /run/determined/workdir/cfg/yolov3.cfg /data/yolov3.weights /data/yolov3.h5
 
 cd /run/determined/workdir/
