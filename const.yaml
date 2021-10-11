@@ -5,7 +5,7 @@ hyperparameters:
   # General
   model_type: yolo3_mobilenet_lite
   anchors_path: /run/determined/workdir/configs/yolo3_anchors.txt
-  #model_image_size: 416x416 # Split into image_height and image_width
+  # model_image_size: 416x416 # Split into image_height and image_width
   image_height: 416
   image_width: 416
   weights_path: /data/yolov3.h5
@@ -43,18 +43,18 @@ bind_mounts:
   - host_path: /tmp
     container_path: /data
 
-records_per_epoch: 100000
+records_per_epoch: 122218
 searcher:
   name: single
   metric: val_loss
   max_length:
     batches: 1000
 min_validation_period:
-  batches: 200
+  batches: 500
 entrypoint: model_def:YoloV3Trial
 max_restarts: 0
 resources:
-  slots_per_trial: 1
+  slots_per_trial: 4
 
 profiling:
   enabled: true

@@ -20,6 +20,7 @@ from yolo2.data import yolo2_data_generator_wrapper, Yolo2DataGenerator
 from common.utils import get_classes, get_anchors, get_dataset, optimize_tf_gpu
 from common.model_utils import get_optimizer
 from common.callbacks import EvalCallBack, CheckpointCleanCallBack, DatasetShuffleCallBack
+from eval import eval_AP, load_eval_model
 
 ### Import Determined packages
 from determined.keras import TFKerasTrial, TFKerasTrialContext
@@ -91,8 +92,8 @@ class YoloV3Trial(TFKerasTrial):
                                  self.num_classes,
                                  weights_path=None,
                                  #weights_path=self.context.get_hparam("weights_path"),
-                                 freeze_level=1,
-                                 #freeze_level=freeze_level,
+                                 #freeze_level=0,
+                                 freeze_level=freeze_level,
                                  optimizer=optimizer,
                                  label_smoothing=self.context.get_hparam("label_smoothing"),
                                  elim_grid_sense=self.context.get_hparam("elim_grid_sense"),
@@ -122,6 +123,8 @@ class YoloV3Trial(TFKerasTrial):
             print(f"Splitting dataset into validation split")
             val_split = self.context.get_hparam("val_split")
             num_val = int(len(dataset) * val_split)
+            # ensure batch size divides evently into num_val
+            num_val -= (num_val % self.context.get_hparam("global_batch_size"))
             num_train = len(dataset) - num_val
 
         if self.context.get_hparam("model_type").startswith('yolo3_') or self.context.get_hparam("model_type").startswith('yolo4_'):
@@ -132,7 +135,7 @@ class YoloV3Trial(TFKerasTrial):
 
             # tf.keras.Sequence style data generator
             self.train_data_generator = Yolo3DataGenerator(dataset[:num_train],
-                                   self.context.get_per_slot_batch_size(),
+                                   self.context.get_hparam("global_batch_size"),
                                    self.input_shape,
                                    self.anchors,
                                    self.num_classes,
@@ -141,8 +144,8 @@ class YoloV3Trial(TFKerasTrial):
                                    self.context.get_hparam("multi_anchor_assign")
                                    )
 
-            self.val_data_generator = Yolo3DataGenerator(dataset[(num_train-3):], # Batch size of 16 doesn't divide evenly into number of records
-                                   self.context.get_per_slot_batch_size(),
+            self.val_data_generator = Yolo3DataGenerator(dataset[num_train:],
+                                   self.context.get_hparam("global_batch_size"),
                                    self.input_shape,
                                    self.anchors,
                                    self.num_classes,
@@ -159,7 +162,7 @@ class YoloV3Trial(TFKerasTrial):
     def build_validation_data_loader(self):
         # Create the validation data loader. This should return a keras.Sequence,
         # a tf.data.Dataset, or NumPy arrays.
-        print(f"!@# Length val_data_generator: {len(self.val_data_generator)}")
+        # print(f"!@# Length val_data_generator: {len(self.val_data_generator)}")
         return self.val_data_generator
 
     def keras_callbacks(self) -> List[tf.keras.callbacks.Callback]:
@@ -171,31 +174,73 @@ class YoloV3Trial(TFKerasTrial):
         early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=50, verbose=1, mode='min')
         terminate_on_nan = TerminateOnNaN()
 
-        #custom_callback = unfreezeCallback()
+        unfreeze_callback = unfreezeCallback()
+        map_callback = mAPCallback(self.context)
         callbacks = [logging, reduce_lr, early_stopping, terminate_on_nan,
-                     #custom_callback,
+                     unfreeze_callback, map_callback,
                      ]
 
         return callbacks
 
-# class unfreezeCallback(tf.keras.callbacks.Callback):
-#
-#     def __init__(self):
-#
-#         super().__init__()
-#
-#     def on_train_batch_end(self, batch, logs=None):
-#
-#         print(f"train_batch: {batch}")
-#         if batch != 0 and batch % 1000 == 0:
-#             print(f"!@# current number of frozen layers in model (partially unfrozen)")
-#             self.model.summary()
-#
-#             print(f"unfreezing model layers")
-#             for i in range(len(self.model.layers)):
-#                 self.model.layers[i].trainable = True
-#             print(f"!@# current number of frozen layers in model (all unfrozen)")
-#             self.model.summary()
+class unfreezeCallback(Callback):
+
+    def __init__(self):
+        super().__init__()
+
+    def on_train_batch_end(self, batch, logs=None):
+        if batch !=0 and batch % 10 == 0:
+            print(f"train_batch: {batch}")
+        if batch != 0 and batch % 500 == 0:
+            #print(f"!@# current number of frozen layers in model (partially unfrozen)")
+            #self.model.summary()
+
+            print(f"unfreezing model layers")
+            for i in range(len(self.model.layers)):
+                self.model.layers[i].trainable = True
+            #print(f"!@# current number of frozen layers in model (all unfrozen)")
+            #self.model.summary()
+
+class mAPCallback(Callback):
+    _supports_tf_logs = True
+
+    def __init__(self, context):
+        super().__init__()
+        self.context = context
+
+    def on_test_end(self, logs: Optional[Dict] = None):
+        print("Computing mAP")
+
+        dataset = get_dataset(self.context.get_hparam("annotation_file"))
+        if self.context.get_hparam("val_annotation_file") != "None":
+            val_dataset = get_dataset(self.context.get_hparam("val_annotation_file"))
+            num_train = len(dataset)
+            num_val = len(val_dataset)
+            dataset.extend(val_dataset)
+        else:
+            val_split = self.context.get_hparam("val_split")
+            num_val = int(len(dataset)*val_split)
+            num_train = len(dataset) - num_val
+
+        model, model_format = load_eval_model(self.context.get_hparam("weights_path"))
+
+        mAP = eval_AP(
+            model,
+            model_format,
+            dataset[num_train:],
+            get_anchors(self.context.get_hparam("anchors_path")),
+            get_classes(self.context.get_hparam("classes_path")),
+            (int(self.context.get_hparam("image_height")), int(self.context.get_hparam("image_width"))),
+            eval_type='VOC',
+            iou_threshold=0.5,
+            conf_threshold=0.001,
+            elim_grid_sense=self.context.get_hparam("elim_grid_sense"),
+            v5_decode=False,
+            save_result=False,
+        )
+        print(f"mAP: {mAP}")
+        print(f"Writing mAP to logs")
+        #print(f"logs: {logs}")
+        logs["mAP"] = mAP
 
 '''
 def main_old(args):
