@@ -1,4 +1,4 @@
-name: yolov3_const_test
+name: yolov3_const_test_fixed_seed
 data:
   url:
 hyperparameters:
@@ -43,18 +43,16 @@ bind_mounts:
   - host_path: /tmp
     container_path: /data
 
-records_per_epoch: 122218
 searcher:
   name: single
   metric: val_loss
   max_length:
-    batches: 1000
-min_validation_period:
-  batches: 500
+    batches: 8000
+
 entrypoint: model_def:YoloV3Trial
 max_restarts: 0
 resources:
-  slots_per_trial: 4
+  slots_per_trial: 1
 
 profiling:
   enabled: true

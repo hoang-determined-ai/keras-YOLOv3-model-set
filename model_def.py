@@ -123,9 +123,13 @@ class YoloV3Trial(TFKerasTrial):
             print(f"Splitting dataset into validation split")
             val_split = self.context.get_hparam("val_split")
             num_val = int(len(dataset) * val_split)
-            # ensure batch size divides evently into num_val
-            num_val -= (num_val % self.context.get_hparam("global_batch_size"))
+            print(f'num_val 1: {num_val}')
+            # ensure batch size divides evenly into num_val
+            num_val -= (round(num_val, 0) % self.context.get_hparam("global_batch_size"))
+            print(f'num_val 2: {num_val}')
             num_train = len(dataset) - num_val
+            num_train -= (round(num_train, 0) % self.context.get_hparam("global_batch_size"))
+            print(f'num_train: {num_train}')
 
         if self.context.get_hparam("model_type").startswith('yolo3_') or self.context.get_hparam("model_type").startswith('yolo4_'):
             # if num_anchors == 9:
@@ -134,23 +138,23 @@ class YoloV3Trial(TFKerasTrial):
             # data_generator = yolo3_data_generator_wrapper
 
             # tf.keras.Sequence style data generator
-            self.train_data_generator = Yolo3DataGenerator(dataset[:num_train],
-                                   self.context.get_hparam("global_batch_size"),
+            self.train_data_generator = self.context.wrap_dataset(Yolo3DataGenerator(dataset[:num_train],
+                                   self.context.get_per_slot_batch_size(),
                                    self.input_shape,
                                    self.anchors,
                                    self.num_classes,
                                    self.context.get_hparam("enhance_augment"),
                                    self.rescale_interval,
                                    self.context.get_hparam("multi_anchor_assign")
-                                   )
+                                   ))
 
-            self.val_data_generator = Yolo3DataGenerator(dataset[num_train:],
-                                   self.context.get_hparam("global_batch_size"),
+            self.val_data_generator = self.context.wrap_dataset(Yolo3DataGenerator(dataset[-num_val:],
+                                   self.context.get_per_slot_batch_size(),
                                    self.input_shape,
                                    self.anchors,
                                    self.num_classes,
                                    multi_anchor_assign=self.context.get_hparam("multi_anchor_assign")
-                                   )
+                                   ))
 
             tiny_version = False
 
