@@ -1,3 +1,17 @@
+# Determined AI
+
+## Run 1 GPU experiment
+`det e create const-1gpu.yaml .`
+
+## Run 4 GPU experiment
+`det e create const-4gpu.yaml .`
+
+Notes:
+* `startup-hook.sh` will install dependencies from `requirements.txt` at runtime.
+* In `const*.yaml`, the `bind_mounts.host_path` defaults to `/tmp` on the host machine, but can be changed as needed. This `host_path` is mounted to `container_path` inside the container running the experiment, which defaults to `/data`.
+
+---
+
 # TF Keras YOLOv4/v3/v2 Modelset
 
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
